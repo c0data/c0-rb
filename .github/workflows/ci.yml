@@ -1,0 +1,24 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive   # c0-c (the header) + c0-spec (vectors) submodules
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.3"
+      - run: rake test
+
+  # NOTE: A YARD docs -> Pages job belongs here (same shape as the other repos),
+  # but GitHub Pages requires the repo to be public. Add it once c0-rb is public.

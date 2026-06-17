@@ -1,0 +1,9 @@
+*.o
+*.so
+*.bundle
+ext/c0/Makefile
+ext/c0/mkmf.log
+/doc/
+/.yardoc/
+Gemfile.lock
+pkg/
