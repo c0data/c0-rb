@@ -106,6 +106,13 @@ module C0
 
     def values = spans.map { |s, e| C0.unescape(@buf.byteslice(s, e - s)) }
 
+    # Field at +index+ read as a list (STX items-separated-by-US ETX), each
+    # item unescaped. A plain field yields one item; an empty scope yields [].
+    def list(index)
+      s, e = spans[index]
+      Ext.field_items(@buf, s, e).map { |is, ie| C0.unescape(@buf.byteslice(is, ie - is)) }
+    end
+
     def size = spans.size
 
     def each
@@ -279,8 +286,78 @@ module C0
       self
     end
 
-    def etb
+    # ETB commit marker (stream mode) with an optional integrity payload,
+    # which may not contain control bytes.
+    def etb(payload = nil)
       @buf << ETB
+      if payload
+        b = C0.to_bin(payload)
+        b.each_byte { |x| raise ArgumentError, "ETB payload may not contain control bytes" if x < 0x20 }
+        @buf << b
+      end
+      self
+    end
+
+    # Nested sub-structure: STX, the block's output, ETX.
+    def nested
+      @buf << STX
+      yield self
+      @buf << ETX
+      self
+    end
+
+    # Reference: ENQ + name, or with 2+ segments ENQ STX segments-joined-by-US ETX.
+    def ref(*path)
+      @buf << ENQ
+      if path.size == 1
+        write_name(path[0])
+      else
+        @buf << STX
+        path.each_with_index do |seg, i|
+          @buf << US if i.positive?
+          write_name(seg)
+        end
+        @buf << ETX
+      end
+      self
+    end
+
+    # Field whose value is a flat list: US STX items-joined-by-US ETX. Read back with Record#list.
+    def list_field(items)
+      @buf << US << STX
+      items.each_with_index do |it, i|
+        @buf << US if i.positive?
+        write_escaped(it)
+      end
+      @buf << ETX
+      self
+    end
+
+    # Single field: US + escaped value (for building records field by field).
+    def field(value)
+      @buf << US
+      write_escaped(value)
+      self
+    end
+
+    # Document-mode section: GS x depth + name.
+    def section(name, depth = 1)
+      depth.times { @buf << GS }
+      write_name(name)
+      self
+    end
+
+    # Document-mode content block: RS + escaped text.
+    def block(text)
+      @buf << RS
+      write_escaped(text)
+      self
+    end
+
+    # Document-mode list item: US + escaped text.
+    def item(text)
+      @buf << US
+      write_escaped(text)
       self
     end
 

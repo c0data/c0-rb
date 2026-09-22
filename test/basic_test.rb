@@ -69,4 +69,78 @@ class BasicTest < Minitest::Test
     assert_includes pretty, "␞" # RS glyph
     assert_equal buf, C0.pretty_parse(pretty)
   end
+
+  def test_list_field_bytes_and_readback
+    buf = C0.build do |b|
+      b.group("users")
+      b.record("Alice")
+      b.list_field(%w[Admin Editor User])
+      b.field("1502.30")
+    end
+    assert_equal "\x1dusers\x1eAlice\x1f\x02Admin\x1fEditor\x1fUser\x03\x1f1502.30".b, buf
+    rec = C0::Table.new(buf).record(0)
+    assert_equal 3, rec.size
+    assert_equal ["Admin".b, "Editor".b, "User".b], rec.list(1)
+    assert_equal "1502.30".b, rec.value(2)
+  end
+
+  def test_list_escaped_items_and_empty_list
+    buf = C0.build do |b|
+      b.group("g")
+      b.record("x")
+      b.list_field(["a\x1fb", "c\x02d"])
+      b.list_field([])
+    end
+    rec = C0::Table.new(buf).record(0)
+    assert_equal 3, rec.size
+    assert_equal ["a\x1fb".b, "c\x02d".b], rec.list(1)
+    assert_equal [], rec.list(2)
+  end
+
+  def test_list_keeps_nested_scope_intact
+    rec = C0::Table.new("\x1eid\x1f\x02a\x1f\x02b\x1fc\x03\x1fd\x03".b).record(0)
+    assert_equal ["a".b, "\x02b\x1fc\x03".b, "d".b], rec.list(1)
+  end
+
+  def test_list_of_plain_field
+    rec = C0::Table.new("\x1eAlice\x1fplain".b).record(0)
+    assert_equal ["plain".b], rec.list(1)
+    assert_equal ["Alice".b], rec.list(0)
+  end
+
+  def test_builder_document_mode_and_refs
+    buf = C0.build do |b|
+      b.section("intro")
+      b.section("sub", 2)
+      b.block("hello\x1fworld")
+      b.item("one")
+      b.field("two")
+      b.ref("users")
+      b.ref("users", "42", "name")
+      b.nested { |n| n.item("in") }
+      b.etb("abc123")
+    end
+    expected = "\x1dintro" \
+               "\x1d\x1dsub" \
+               "\x1ehello\x10\x1fworld" \
+               "\x1fone" \
+               "\x1ftwo" \
+               "\x05users" \
+               "\x05\x02users\x1f42\x1fname\x03" \
+               "\x02\x1fin\x03" \
+               "\x17abc123"
+    assert_equal expected.b, buf
+  end
+
+  def test_builder_chaining
+    b = C0::Builder.new
+    assert_same b, b.group("g").record("a").field("b").list_field(%w[c]).eot.etb
+    assert_same b, b.nested { |n| n.item("x") }
+  end
+
+  def test_etb_payload_rejects_control_bytes
+    assert_raises(ArgumentError) { C0::Builder.new.etb("bad\x1fpayload") }
+    assert_raises(ArgumentError) { C0::Builder.new.ref("bad\x1fref") }
+    assert_raises(ArgumentError) { C0::Builder.new.section("bad\x1esection") }
+  end
 end

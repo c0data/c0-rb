@@ -107,6 +107,25 @@ static VALUE ext_record_fields(VALUE self, VALUE str, VALUE rstart, VALUE rend) 
     return arr;
 }
 
+static VALUE ext_field_items(VALUE self, VALUE str, VALUE fstart, VALUE fend) {
+    const uint8_t *base;
+    long start, end;
+    c0_bytes field, item;
+    c0_list_iter li;
+    VALUE arr;
+    (void)self;
+    StringValue(str);
+    base = (const uint8_t *)RSTRING_PTR(str);
+    start = NUM2LONG(fstart);
+    end = NUM2LONG(fend);
+    field.ptr = base + start;
+    field.len = (size_t)(end - start);
+    arr = rb_ary_new();
+    li = c0_field_items(field);
+    while (c0_next_item(&li, &item)) push_span(arr, base, item);
+    return arr;
+}
+
 static VALUE ext_document(VALUE self, VALUE str) {
     const uint8_t *base;
     size_t len;
@@ -184,6 +203,7 @@ void Init_c0_ext(void) {
     rb_define_module_function(mExt, "tokenize", ext_tokenize, 1);
     rb_define_module_function(mExt, "table", ext_table, -1);
     rb_define_module_function(mExt, "record_fields", ext_record_fields, 3);
+    rb_define_module_function(mExt, "field_items", ext_field_items, 3);
     rb_define_module_function(mExt, "document", ext_document, 1);
     rb_define_module_function(mExt, "stream", ext_stream, 1);
     rb_define_module_function(mExt, "pretty_format", ext_pretty_format, -1);
