@@ -1,6 +1,6 @@
 Gem::Specification.new do |spec|
   spec.name        = "c0"
-  spec.version     = "0.1.0"
+  spec.version     = "0.2.0"
   spec.summary     = "C0DATA — structured data using ASCII C0 control codes"
   spec.description  = "A thin, fast Ruby binding over the c0 C core. The read " \
                       "path is zero-copy; the scan-heavy work runs as native C."
