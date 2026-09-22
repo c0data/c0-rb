@@ -74,6 +74,37 @@ class EncodeConformanceTest < Minitest::Test
   end
 end
 
+class ListConformanceTest < Minitest::Test
+  def test_list
+    Conformance.cases("list.json").each do |c|
+      buf = Conformance.hexbytes(c["bytes"])
+      rec = C0::Table.new(buf).record(0)
+      record = c["record"]
+      assert_equal record.size, rec.size, c["name"]
+      record.each_with_index do |entry, i|
+        if entry.is_a?(Array)
+          assert_equal entry.map { |f| Conformance.field_bytes(f) }, rec.list(i), c["name"]
+        else
+          assert_equal Conformance.field_bytes(entry), rec.value(i), c["name"]
+        end
+      end
+      next unless c["canonical"]
+
+      b = C0::Builder.new
+      b.record(Conformance.field_bytes(record[0]))
+      record[1..].each do |entry|
+        if entry.is_a?(Array)
+          b.list_field(entry.map { |f| Conformance.field_bytes(f) })
+        else
+          b.field(Conformance.field_bytes(entry))
+        end
+      end
+      assert_equal c["bytes"], b.bytes.unpack1("H*"), c["name"]
+      assert C0.canonical?(b.bytes), c["name"]
+    end
+  end
+end
+
 class CanonicalConformanceTest < Minitest::Test
   def test_canonical
     Conformance.cases("canonical.json").each do |c|
