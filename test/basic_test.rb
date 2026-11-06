@@ -289,6 +289,82 @@ class BasicTest < Minitest::Test
     assert_equal expected.b, b.to_s
   end
 
+  def test_primitives_spell_the_bytes
+    g = ->(text) { C0::Pretty.parse(text) }
+    assert_equal g["␜inv␝users␁␞name␟amount"],
+                 C0.build { |b| b.fs("inv").gs("users").soh.rs("name").us("amount") }
+    assert_equal g["␞Alice␟1502.30"], C0.build { |b| b.rs("Alice").us("1502.30") }
+    assert_equal g["␞␁host␟localhost␁port␟5432"],
+                 C0.build { |b| b.rs.soh("host").us("localhost").soh("port").us("5432") }
+    assert_equal g["␞cfg␟␐␞␁b␟2␘"],
+                 C0.build { |b| b.rs("cfg").us.dle.rs.soh("b").us("2").can }
+    assert_equal g["␇checked␞x"], C0.build { |b| b.bel("checked").rs("x") }
+    assert_equal g["␇␝old␞1␝new␞2"],
+                 C0.build { |b| b.bel.gs("old").rs("1").gs("new").rs("2") }
+    assert_equal g["␝␝sub␞␅users␟␅␂users␟1␃"],
+                 C0.build { |b| b.gs.gs("sub").rs.enq("users").us.enq("users", "1") }
+    assert_equal g["␖␁version␟1␞a␄"],
+                 C0.build { |b| b.syn.soh("version").us("1").rs("a").eot }
+    assert_equal "tagtailÿ".b, C0.build { |b| b.etb.etb("tag").em("tailÿ".b) }
+    # values keep the one spelling; names stay names
+    assert_equal "ab x
+".b,
+                 C0.build { |b| b.rs("ab").us(" x").bel("
+") }
+    assert_raises(C0::BuildError) { C0::Builder.new.gs("ab") }
+    assert_raises(C0::BuildError) { C0::Builder.new.soh(" k") }
+    assert_equal C0.build { |b| b.rs("a").note("n") }, C0.build { |b| b.rs("a").bel("n") }
+  end
+
+  def test_primitives_mix_with_composed_methods
+    buf = C0.build do |b|
+      b.rs("a")
+      b.field("b")
+      b.record
+      b.us("c")
+      b.gs("g")
+      b.key("k", "v")
+      b.group("h", %w[h])
+      b.field("x")
+    end
+    assert_equal C0::Pretty.parse("␞a␟b␞␟c␝g␞␁k␟v␝h␁␞h␞x"), buf
+    assert_raises(C0::BuildError) { C0::Builder.new.can }
+    assert_raises(C0::BuildError) { C0::Builder.new.rs.enq("a", "b", "c", "d") }
+    assert_raises(C0::BuildError) { C0::Builder.new.rs.enq("a", "", "c") }
+    assert_raises(ArgumentError) { C0::Builder.new.rs("a").bel("") }
+    # a level opened with dle and closed by the block form, and vice versa
+    assert_equal "abc".b,
+                 C0.build { |b| b.rs("a").us.dle.record("b").can.field("c") }
+    b = C0::Builder.new.rs("a")
+    b.level { b.rs("b").us("c") }
+    assert_equal "abc".b, b.bytes
+    assert_equal 0, b.depth
+  end
+
+  def test_both_layers_write_the_same_bytes
+    hi = C0.build do |b|
+      b.syn(shape: "tabular")
+      b.group("users", %w[name amount]) do
+        b.record("Alice", "1502.30")
+        b.record("Bob", "3 40")
+      end
+      b.group("cfg")
+      b.map("host" => "localhost", "port" => "5432")
+      b.record("Carol")
+      b.list(%w[Admin Editor])
+      b.ref("users", "1")
+      b.eot
+    end
+    lo = C0.build do |b|
+      b.syn.soh("shape").us("tabular")
+      b.gs("users").soh.rs("name").us("amount").rs("Alice").us("1502.30").rs("Bob").us("3 40")
+      b.gs("cfg").rs.soh("host").us("localhost").soh("port").us("5432")
+      b.rs("Carol").us.dle.rs("Admin").us("Editor").can.us.enq("users", "1").eot
+    end
+    assert_equal hi, lo
+    assert C0.canonical?(C0::Document.new(lo).body.raw)
+  end
+
   def test_builder_accepts_symbols_and_arrays
     buf = C0.build do |b|
       b.syn("shape" => "key-value", version: "1")

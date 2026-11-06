@@ -9,7 +9,9 @@
  *                now, so a mutated buffer can never make us read out of range.
  *
  *   C0::Builder  a TypedData object owning a c0_builder (init/free pair), with
- *                the whole writer API, block forms included.
+ *                the whole writer API: the primitives (one method per code,
+ *                fs gs rs us soh dle can bel enq syn eot etb em) and the
+ *                composed methods built on them, block forms included.
  *
  * Errors become exceptions deriving from C0::Error, with the byte position on
  * the syntax errors. Malloc'd results from c0.h (pretty form) are copied into
@@ -577,6 +579,136 @@ static VALUE builder_size(VALUE self) { return LONG2NUM((long)get_builder(self)-
 
 static VALUE builder_depth(VALUE self) { return LONG2NUM((long)get_builder(self)->depth); }
 
+/* -- primitives: one method per code -- */
+
+/* A reference path: one to three non-empty names, as c0_bytes backed by *tmp. */
+static c0_bytes *path_arg(VALUE path, VALUE *tmp, long *count) {
+    c0_bytes *arr;
+    long i;
+    if (RARRAY_LEN(path) < 1 || RARRAY_LEN(path) > 3) {
+        rb_raise(eBuildError, "a reference is a group name or a path of two or three segments");
+    }
+    arr = bytes_array(path, 1, "reference segment", tmp, count);
+    for (i = 0; i < *count; i++) {
+        if (arr[i].len == 0) rb_raise(eBuildError, "reference segment must not be empty");
+    }
+    return arr;
+}
+
+/* fs(name): FS and a file name; ends any open record. */
+static VALUE builder_fs(VALUE self, VALUE name) {
+    c0_builder *b = get_builder(self);
+    c0_bytes n = name_arg(name, "file name");
+    c0_builder_fs(b, n.ptr, n.len);
+    builder_check(b);
+    return self;
+}
+
+/* gs(name = nil): GS and, when given, a group name. gs.gs("sub") is depth 2. */
+static VALUE builder_gs(int argc, VALUE *argv, VALUE self) {
+    c0_builder *b = get_builder(self);
+    VALUE name;
+    rb_scan_args(argc, argv, "01", &name);
+    if (NIL_P(name)) {
+        c0_builder_gs(b);
+    } else {
+        c0_bytes n = name_arg(name, "group name");
+        c0_builder_gs_name(b, n.ptr, n.len);
+    }
+    builder_check(b);
+    return self;
+}
+
+/* rs(value = nil): RS and, when given, the record's first value. */
+static VALUE builder_rs(int argc, VALUE *argv, VALUE self) {
+    c0_builder *b = get_builder(self);
+    VALUE value;
+    rb_scan_args(argc, argv, "01", &value);
+    if (NIL_P(value)) {
+        c0_builder_rs(b);
+    } else {
+        c0_bytes v = bytes_arg(value);
+        c0_builder_rs_value(b, v.ptr, v.len);
+    }
+    builder_check(b);
+    return self;
+}
+
+/* us(value = nil): US and, when given, the value that follows it. */
+static VALUE builder_us(int argc, VALUE *argv, VALUE self) {
+    c0_builder *b = get_builder(self);
+    VALUE value;
+    rb_scan_args(argc, argv, "01", &value);
+    if (NIL_P(value)) {
+        c0_builder_us(b);
+    } else {
+        c0_bytes v = bytes_arg(value);
+        c0_builder_us_value(b, v.ptr, v.len);
+    }
+    builder_check(b);
+    return self;
+}
+
+/* soh(name = nil): SOH and, when given, a key. Bare before rs it opens a header row. */
+static VALUE builder_soh(int argc, VALUE *argv, VALUE self) {
+    c0_builder *b = get_builder(self);
+    VALUE name;
+    rb_scan_args(argc, argv, "01", &name);
+    if (NIL_P(name)) {
+        c0_builder_soh(b);
+    } else {
+        c0_bytes n = name_arg(name, "key");
+        c0_builder_soh_name(b, n.ptr, n.len);
+    }
+    builder_check(b);
+    return self;
+}
+
+/* dle: open a nested level (the record state is saved). */
+static VALUE builder_dle(VALUE self) {
+    c0_builder *b = get_builder(self);
+    c0_builder_dle(b);
+    builder_check(b);
+    return self;
+}
+
+/* can: close the innermost level; C0::BuildError if none is open. */
+static VALUE builder_can(VALUE self) {
+    c0_builder *b = get_builder(self);
+    if (b->depth == 0) rb_raise(eBuildError, "CAN with no open level");
+    c0_builder_can(b);
+    builder_check(b);
+    return self;
+}
+
+/* bel(text = nil): BEL and, when given, a note. Bare, it marks the element that follows dead. */
+static VALUE builder_bel(int argc, VALUE *argv, VALUE self) {
+    c0_builder *b = get_builder(self);
+    VALUE text;
+    rb_scan_args(argc, argv, "01", &text);
+    if (NIL_P(text)) {
+        c0_builder_bel(b);
+    } else {
+        c0_bytes t = bytes_arg(text);
+        if (t.len == 0) rb_raise(rb_eArgError, "a note needs content: bare BEL marks the next element dead");
+        c0_builder_bel_text(b, t.ptr, t.len);
+    }
+    builder_check(b);
+    return self;
+}
+
+/* enq(name) or enq(group, record[, field]): ENQ and a reference. */
+static VALUE builder_enq(int argc, VALUE *argv, VALUE self) {
+    c0_builder *b = get_builder(self);
+    VALUE tmp;
+    long n;
+    c0_bytes *arr = path_arg(splat_or_array(argc, argv), &tmp, &n);
+    c0_builder_enq_path(b, arr, (size_t)n);
+    RB_GC_GUARD(tmp);
+    builder_check(b);
+    return self;
+}
+
 /* -- documents -- */
 
 static VALUE builder_key_pair(VALUE key, VALUE val, VALUE self);
@@ -586,12 +718,12 @@ static int syn_pair_i(VALUE key, VALUE val, VALUE self) {
     return ST_CONTINUE;
 }
 
-/* syn(pairs = {}, **pairs): SYN and the heading's keyed units, in order. */
+/* syn(pairs = {}, **pairs): SYN and, when given, the heading's keyed units in order. */
 static VALUE builder_syn(int argc, VALUE *argv, VALUE self) {
     c0_builder *b = get_builder(self);
     VALUE pairs, kw;
     rb_scan_args(argc, argv, "01:", &pairs, &kw);
-    c0_build_syn(b);
+    c0_builder_syn(b);
     builder_check(b);
     if (!NIL_P(pairs)) rb_hash_foreach(rb_convert_type(pairs, T_HASH, "Hash", "to_hash"), syn_pair_i, self);
     if (!NIL_P(kw)) rb_hash_foreach(kw, syn_pair_i, self);
@@ -600,7 +732,7 @@ static VALUE builder_syn(int argc, VALUE *argv, VALUE self) {
 
 static VALUE builder_eot(VALUE self) {
     c0_builder *b = get_builder(self);
-    c0_build_eot(b);
+    c0_builder_eot(b);
     builder_check(b);
     return self;
 }
@@ -611,10 +743,10 @@ static VALUE builder_etb(int argc, VALUE *argv, VALUE self) {
     VALUE payload;
     rb_scan_args(argc, argv, "01", &payload);
     if (NIL_P(payload)) {
-        c0_build_etb(b, NULL, 0);
+        c0_builder_etb(b);
     } else {
         c0_bytes p = name_arg(payload, "ETB payload");
-        c0_build_etb(b, p.ptr, p.len);
+        c0_builder_etb_payload(b, p.ptr, p.len);
     }
     builder_check(b);
     return self;
@@ -624,7 +756,7 @@ static VALUE builder_etb(int argc, VALUE *argv, VALUE self) {
 static VALUE builder_em(VALUE self, VALUE tail) {
     c0_builder *b = get_builder(self);
     c0_bytes t = bytes_arg(tail);
-    c0_build_em(b, t.ptr, t.len);
+    c0_builder_em(b, t.ptr, t.len);
     builder_check(b);
     return self;
 }
@@ -809,17 +941,9 @@ static VALUE builder_list(int argc, VALUE *argv, VALUE self) {
 /* ref(name) or ref(group, record[, field]): a reference as the next unit. */
 static VALUE builder_ref(int argc, VALUE *argv, VALUE self) {
     c0_builder *b = get_builder(self);
-    VALUE path = splat_or_array(argc, argv);
     VALUE tmp;
-    long n, i;
-    c0_bytes *arr;
-    if (RARRAY_LEN(path) < 1 || RARRAY_LEN(path) > 3) {
-        rb_raise(eBuildError, "a reference is a group name or a path of two or three segments");
-    }
-    arr = bytes_array(path, 1, "reference segment", &tmp, &n);
-    for (i = 0; i < n; i++) {
-        if (arr[i].len == 0) rb_raise(eBuildError, "reference segment must not be empty");
-    }
+    long n;
+    c0_bytes *arr = path_arg(splat_or_array(argc, argv), &tmp, &n);
     c0_build_ref_path(b, arr, (size_t)n);
     RB_GC_GUARD(tmp);
     builder_check(b);
@@ -888,6 +1012,15 @@ void Init_c0_ext(void) {
     rb_define_method(cBuilder, "bytes", builder_bytes, 0);
     rb_define_method(cBuilder, "bytesize", builder_size, 0);
     rb_define_method(cBuilder, "depth", builder_depth, 0);
+    rb_define_method(cBuilder, "fs", builder_fs, 1);
+    rb_define_method(cBuilder, "gs", builder_gs, -1);
+    rb_define_method(cBuilder, "rs", builder_rs, -1);
+    rb_define_method(cBuilder, "us", builder_us, -1);
+    rb_define_method(cBuilder, "soh", builder_soh, -1);
+    rb_define_method(cBuilder, "dle", builder_dle, 0);
+    rb_define_method(cBuilder, "can", builder_can, 0);
+    rb_define_method(cBuilder, "bel", builder_bel, -1);
+    rb_define_method(cBuilder, "enq", builder_enq, -1);
     rb_define_method(cBuilder, "syn", builder_syn, -1);
     rb_define_method(cBuilder, "heading_level", builder_heading_level, 1);
     rb_define_method(cBuilder, "eot", builder_eot, 0);

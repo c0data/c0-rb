@@ -14,16 +14,34 @@ module C0
   #     b.eot
   #   end
   #
+  # Two layers. The primitives are one method per code (`fs`, `gs`, `rs`,
+  # `us`, `soh`, `dle`, `can`, `bel`, `enq`, `syn`, `eot`, `etb`, `em`); each
+  # writes its code and, when given, what grammatically follows it, so a chain
+  # reads like the bytes:
+  #
+  #   b.rs("Alice").us("1502.30")                              # ␞Alice␟1502.30
+  #   b.rs.soh("host").us("localhost").soh("port").us("5432")  # ␞␁host␟localhost␁port␟5432
+  #   b.gs("users").soh.rs("name").us("amount")                # ␝users␁␞name␟amount
+  #   b.bel.gs("old")                                          # ␇␝old, a dead group
+  #
+  # The composed methods (`file`, `group`, `header`, `record`, `field`, `map`,
+  # `key`, `level`, `list`, `ref`, `note`) are built on the primitives and
+  # cannot write ill-formed output. The primitives write what you spell;
+  # well-formedness is then yours to keep. Both layers share the record state,
+  # so they mix: `b.rs("a").field("b")` writes ␞a␟b.
+  #
   # Values are byte-transparent and written in their one spelling: plain when
-  # they can be, text (STX … ETX) otherwise, with only the seven codes escaped.
+  # they can be, text (STX … ETX) otherwise, with only the seven codes escaped;
+  # there is no STX/ETX primitive, so everything written stays canonical.
   # Names (file, group, header, key, reference segment, ETB payload) must be
   # plain, or a C0::BuildError is raised before anything is written. Every
   # method returns the builder, so calls chain.
   #
-  # A record is opened by `record` (or implicitly by the first `field`, `key`,
-  # `level`, `list` or `ref`) and ended by the next structural call. Keyed
-  # units written right after `syn` belong to the heading. Inside `level { }`
-  # the builder is at the top of a fresh body.
+  # A record is opened by `record` or `rs` (or implicitly by the first `field`,
+  # `key`, `level`, `list` or `ref`) and ended by the next structural call.
+  # Keyed units written right after `syn` belong to the heading. Inside
+  # `level { }` (or between `dle` and `can`) the builder is at the top of a
+  # fresh body.
   class Builder
     # Drive a fresh builder and return its bytes.
     def self.build
