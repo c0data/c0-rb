@@ -388,7 +388,7 @@ class BasicTest < Minitest::Test
     assert_equal "a b".b, C0.trim("  a b\n")
     assert_equal "x\x02y".b, C0.decode_text("x\x10\x02y")
     assert_equal "hi".b, C0.value("\x02hi\x03")
-    assert_equal "1.0.0-dev", C0::VERSION
+    assert_equal "0.2.0", C0::VERSION
   end
 
   def test_no_leaks_under_a_loop
