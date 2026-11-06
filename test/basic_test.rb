@@ -305,13 +305,15 @@ class BasicTest < Minitest::Test
                  C0.build { |b| b.gs.gs("sub").rs.enq("users").us.enq("users", "1") }
     assert_equal g["␖␁version␟1␞a␄"],
                  C0.build { |b| b.syn.soh("version").us("1").rs("a").eot }
-    assert_equal "tagtailÿ".b, C0.build { |b| b.etb.etb("tag").em("tailÿ".b) }
+    assert_equal "\x17\x17tag\x19tail\xff".b, C0.build { |b| b.etb.etb("tag").em("tail\xff".b) }
+    # sub, C0-DIFF only: a replace-all and a pattern with one substitution
+    assert_equal g["\u241eold\u241anew"], C0.build { |b| b.rs("old").sub("new") }
+    assert_equal g["\u241dx\u241f10\u241a20"], C0.build { |b| b.gs("x").us("10").sub("20") }
+    assert_equal "\x1eold\x1a\x02a\x1fb\x03\x1a".b, C0.build { |b| b.rs("old").sub("a\x1fb").sub }
     # values keep the one spelling; names stay names
-    assert_equal "ab x
-".b,
-                 C0.build { |b| b.rs("ab").us(" x").bel("
-") }
-    assert_raises(C0::BuildError) { C0::Builder.new.gs("ab") }
+    assert_equal "\x1e\x02a\x1fb\x03\x1f\x02 x\x03\x07\x02\n\x03".b,
+                 C0.build { |b| b.rs("a\x1fb").us(" x").bel("\n") }
+    assert_raises(C0::BuildError) { C0::Builder.new.gs("a\x1fb") }
     assert_raises(C0::BuildError) { C0::Builder.new.soh(" k") }
     assert_equal C0.build { |b| b.rs("a").note("n") }, C0.build { |b| b.rs("a").bel("n") }
   end
@@ -333,11 +335,11 @@ class BasicTest < Minitest::Test
     assert_raises(C0::BuildError) { C0::Builder.new.rs.enq("a", "", "c") }
     assert_raises(ArgumentError) { C0::Builder.new.rs("a").bel("") }
     # a level opened with dle and closed by the block form, and vice versa
-    assert_equal "abc".b,
+    assert_equal "\x1ea\x1f\x10\x1eb\x18\x1fc".b,
                  C0.build { |b| b.rs("a").us.dle.record("b").can.field("c") }
     b = C0::Builder.new.rs("a")
     b.level { b.rs("b").us("c") }
-    assert_equal "abc".b, b.bytes
+    assert_equal "\x1ea\x1f\x10\x1eb\x1fc\x18".b, b.bytes
     assert_equal 0, b.depth
   end
 

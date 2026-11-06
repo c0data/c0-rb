@@ -10,7 +10,7 @@
  *
  *   C0::Builder  a TypedData object owning a c0_builder (init/free pair), with
  *                the whole writer API: the primitives (one method per code,
- *                fs gs rs us soh dle can bel enq syn eot etb em) and the
+ *                fs gs rs us sub soh dle can bel enq syn eot etb em) and the
  *                composed methods built on them, block forms included.
  *
  * Errors become exceptions deriving from C0::Error, with the byte position on
@@ -649,6 +649,23 @@ static VALUE builder_us(int argc, VALUE *argv, VALUE self) {
     return self;
 }
 
+/* sub(value = nil): SUB and, when given, the new side of a substitution. C0-DIFF
+ * only: rs("old").sub("new") is a replace-all; in a data body SUB is an error.
+ * Does not count as a unit. */
+static VALUE builder_sub(int argc, VALUE *argv, VALUE self) {
+    c0_builder *b = get_builder(self);
+    VALUE value;
+    rb_scan_args(argc, argv, "01", &value);
+    if (NIL_P(value)) {
+        c0_builder_sub(b);
+    } else {
+        c0_bytes v = bytes_arg(value);
+        c0_builder_sub_value(b, v.ptr, v.len);
+    }
+    builder_check(b);
+    return self;
+}
+
 /* soh(name = nil): SOH and, when given, a key. Bare before rs it opens a header row. */
 static VALUE builder_soh(int argc, VALUE *argv, VALUE self) {
     c0_builder *b = get_builder(self);
@@ -1016,6 +1033,7 @@ void Init_c0_ext(void) {
     rb_define_method(cBuilder, "gs", builder_gs, -1);
     rb_define_method(cBuilder, "rs", builder_rs, -1);
     rb_define_method(cBuilder, "us", builder_us, -1);
+    rb_define_method(cBuilder, "sub", builder_sub, -1);
     rb_define_method(cBuilder, "soh", builder_soh, -1);
     rb_define_method(cBuilder, "dle", builder_dle, 0);
     rb_define_method(cBuilder, "can", builder_can, 0);

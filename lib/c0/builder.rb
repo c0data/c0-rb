@@ -15,9 +15,10 @@ module C0
   #   end
   #
   # Two layers. The primitives are one method per code (`fs`, `gs`, `rs`,
-  # `us`, `soh`, `dle`, `can`, `bel`, `enq`, `syn`, `eot`, `etb`, `em`); each
-  # writes its code and, when given, what grammatically follows it, so a chain
-  # reads like the bytes:
+  # `us`, `sub`, `soh`, `dle`, `can`, `bel`, `enq`, `syn`, `eot`, `etb`, `em`);
+  # each writes its code and, when given, what grammatically follows it, so a
+  # chain reads like the bytes (`sub` is C0-DIFF only: `rs("old").sub("new")`
+  # writes a replace-all, ␞old␚new; in a data body SUB is an error):
   #
   #   b.rs("Alice").us("1502.30")                              # ␞Alice␟1502.30
   #   b.rs.soh("host").us("localhost").soh("port").us("5432")  # ␞␁host␟localhost␁port␟5432
